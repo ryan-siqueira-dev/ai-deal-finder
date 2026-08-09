@@ -1,0 +1,163 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Search {
+  id              String           @id @default(cuid())
+  name            String
+  query           String
+  category        String
+  minPrice        Decimal?         @db.Decimal(14, 2)
+  maxPrice        Decimal?         @db.Decimal(14, 2)
+  minYear         Int?
+  maxYear         Int?
+  location        String?
+  radiusKm        Int?
+  minimumScore    Int              @default(70)
+  intervalMinutes Int              @default(60)
+  providers       String[]
+  forbiddenWords  String[]
+  active          Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  lastRunAt       DateTime?
+  listings        SearchListing[]
+  analyses        ListingAnalysis[]
+  notifications   Notification[]
+
+  @@index([active, lastRunAt])
+}
+
+model Listing {
+  id              String                  @id @default(cuid())
+  source          String
+  category        String
+  externalId      String?
+  fingerprint     String
+  title           String
+  description     String?
+  price           Decimal?                @db.Decimal(14, 2)
+  currency        String?
+  location        String?
+  sellerName      String?
+  url             String
+  normalizedUrl   String
+  imageUrl        String?
+  images          String[]
+  attributes      Json?
+  publishedAt     DateTime?
+  firstSeenAt     DateTime                @default(now())
+  lastSeenAt      DateTime                @default(now())
+  lastCheckedAt   DateTime                @default(now())
+  active          Boolean                 @default(true)
+  rawData         Json?
+  contentHash     String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  searches        SearchListing[]
+  priceHistory    ListingPriceHistory[]
+  structuredData  StructuredListingData?
+  analyses        ListingAnalysis[]
+  notifications   Notification[]
+  matchesAsA      CrossMarketplaceMatch[] @relation("MatchA")
+  matchesAsB      CrossMarketplaceMatch[] @relation("MatchB")
+
+  @@unique([source, externalId])
+  @@unique([source, normalizedUrl])
+  @@index([source, fingerprint])
+  @@index([category, active, lastSeenAt])
+  @@index([price])
+}
+
+model SearchListing {
+  searchId       String
+  listingId      String
+  firstMatchedAt DateTime @default(now())
+  lastMatchedAt  DateTime @default(now())
+  search         Search   @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  listing        Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@id([searchId, listingId])
+  @@index([listingId])
+}
+
+model ListingPriceHistory {
+  id         String   @id @default(cuid())
+  listingId  String
+  price      Decimal  @db.Decimal(14, 2)
+  observedAt DateTime @default(now())
+  listing    Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, observedAt])
+}
+
+model StructuredListingData {
+  id            String   @id @default(cuid())
+  listingId     String   @unique
+  category      String
+  data          Json
+  schemaVersion Int      @default(1)
+  extractedAt   DateTime @default(now())
+  listing       Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([category, extractedAt])
+}
+
+model ListingAnalysis {
+  id                     String         @id @default(cuid())
+  listingId              String
+  searchId               String
+  score                  Int
+  deterministicScore     Int
+  verdict                String
+  marketMedianPrice      Decimal?       @db.Decimal(14, 2)
+  estimatedMarketPrice   Decimal?       @db.Decimal(14, 2)
+  priceDifferencePercent Decimal?       @db.Decimal(8, 2)
+  advantages             String[]
+  risks                  String[]
+  reason                  String
+  analysisModel           String?
+  inputHash               String
+  createdAt               DateTime       @default(now())
+  listing                 Listing        @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  search                  Search         @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  notifications           Notification[]
+
+  @@index([listingId, searchId, createdAt])
+  @@index([searchId, score])
+}
+
+model Notification {
+  id         String          @id @default(cuid())
+  listingId  String
+  searchId   String
+  analysisId String
+  channel    String
+  sentAt     DateTime        @default(now())
+  listing    Listing         @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  search     Search          @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  analysis   ListingAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@unique([listingId, searchId, analysisId, channel])
+  @@index([searchId, sentAt])
+}
+
+model CrossMarketplaceMatch {
+  id         String   @id @default(cuid())
+  listingAId String
+  listingBId String
+  confidence Float
+  reasons    String[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  listingA   Listing  @relation("MatchA", fields: [listingAId], references: [id], onDelete: Cascade)
+  listingB   Listing  @relation("MatchB", fields: [listingBId], references: [id], onDelete: Cascade)
+
+  @@unique([listingAId, listingBId])
+  @@index([listingBId])
+}
