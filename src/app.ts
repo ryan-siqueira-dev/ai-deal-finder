@@ -65,6 +65,8 @@ export function createApplication(config: AppConfig): Application {
       extractionModel: config.LLM_EXTRACTION_MODEL,
       analysisModel: config.LLM_ANALYSIS_MODEL,
       timeoutMs: config.LLM_REQUEST_TIMEOUT_MS,
+      maxOutputTokens: config.LLM_MAX_OUTPUT_TOKENS,
+      reasoningEffort: config.LLM_REASONING_EFFORT,
     }, logger);
   } else logger.warn({ event: "llm_disabled" }, "LLM is not fully configured; deterministic analysis remains available");
 

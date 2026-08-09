@@ -74,7 +74,7 @@ Necessário para o pipeline completo:
 - LLM: `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_EXTRACTION_MODEL` e `LLM_ANALYSIS_MODEL`.
 - Telegram: `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID`.
 
-OpenRouter funciona apontando `LLM_BASE_URL` para seu endpoint OpenAI-compatible. O exemplo usa `deepseek/deepseek-v4-flash-0731`, mas os modelos permanecem configuráveis. Sem LLM, o sistema continua calculando e persistindo o score determinístico; sem Telegram, apenas não envia notificações.
+OpenRouter funciona apontando `LLM_BASE_URL` para seu endpoint OpenAI-compatible. Para economizar, o exemplo usa `qwen/qwen3.7-flash` nas extrações em volume e `deepseek/deepseek-v4-flash` somente na análise final das oportunidades. `LLM_MAX_OUTPUT_TOKENS=800` limita respostas longas e `LLM_REASONING_EFFORT=none` evita tokens de raciocínio cobrados. Os modelos permanecem configuráveis. Sem LLM, o sistema continua calculando e persistindo o score determinístico; sem Telegram, apenas não envia notificações.
 
 Modelos gratuitos podem responder lentamente; `LLM_REQUEST_TIMEOUT_MS` controla a espera da IA separadamente do timeout dos navegadores.
 

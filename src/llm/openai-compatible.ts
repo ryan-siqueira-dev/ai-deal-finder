@@ -13,6 +13,12 @@ import {
 
 const chatResponseSchema = z.object({
   choices: z.array(z.object({ message: z.object({ content: z.string().nullable() }) })).min(1),
+  usage: z.object({
+    prompt_tokens: z.number().optional(),
+    completion_tokens: z.number().optional(),
+    total_tokens: z.number().optional(),
+    cost: z.number().optional(),
+  }).passthrough().optional(),
 });
 
 export interface OpenAICompatibleOptions {
@@ -21,6 +27,8 @@ export interface OpenAICompatibleOptions {
   extractionModel: string;
   analysisModel: string;
   timeoutMs: number;
+  maxOutputTokens: number;
+  reasoningEffort: "none" | "minimal" | "low" | "medium" | "high";
 }
 
 export class OpenAICompatibleProvider implements LLMProvider {
@@ -83,14 +91,29 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
   private async chat(model: string, prompt: string): Promise<string> {
     const url = new URL("chat/completions", this.options.baseUrl.endsWith("/") ? this.options.baseUrl : `${this.options.baseUrl}/`);
+    const isOpenRouter = url.hostname === "openrouter.ai";
+    const requestBody = {
+      model,
+      temperature: 0.1,
+      max_tokens: this.options.maxOutputTokens,
+      response_format: { type: "json_object" },
+      messages: [{ role: "user", content: prompt }],
+      ...(isOpenRouter ? {
+        reasoning: { effort: this.options.reasoningEffort, exclude: true },
+        provider: { require_parameters: true },
+      } : {}),
+    };
     const response = await fetchWithRetry(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${this.options.apiKey}`, "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ model, temperature: 0.1, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }),
+      body: JSON.stringify(requestBody),
     }, { timeoutMs: this.options.timeoutMs, retries: 1, baseDelayMs: 750 });
     if (!response.ok) throw new Error(`llm_http_error:${response.status}:${(await response.text()).slice(0, 500)}`);
     const parsed = chatResponseSchema.safeParse(await response.json());
     if (!parsed.success) throw new Error(`llm_invalid_api_response:${parsed.error.message}`);
+    if (parsed.data.usage) {
+      this.logger.debug({ event: "llm_usage", model, usage: parsed.data.usage }, "LLM request usage");
+    }
     const content = parsed.data.choices[0]?.message.content;
     if (!content) throw new Error("llm_empty_response");
     return content;

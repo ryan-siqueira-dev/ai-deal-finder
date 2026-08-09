@@ -31,6 +31,8 @@ const envSchema = z.object({
   LLM_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
   LLM_EXTRACTION_MODEL: z.string().optional(),
   LLM_ANALYSIS_MODEL: z.string().optional(),
+  LLM_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().max(4_096).default(800),
+  LLM_REASONING_EFFORT: z.enum(["none", "minimal", "low", "medium", "high"]).default("none"),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
