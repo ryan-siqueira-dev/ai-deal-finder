@@ -72,5 +72,6 @@ describe("Zod contracts", () => {
   it("rejects invalid category data and out-of-range LLM scores", () => {
     expect(gpuDataSchema.safeParse({}).success).toBe(false);
     expect(dealAnalysisSchema.safeParse({ score: 110, verdict: "good", advantages: [], risks: [], reason: "x" }).success).toBe(false);
+    expect(listingDetailsSchema.safeParse(listingFixture({ price: 1_000_000_000_000 })).success).toBe(false);
   });
 });

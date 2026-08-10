@@ -47,12 +47,48 @@ describe("OLX parser and mapper", () => {
     expect(summary).toMatchObject({ externalId: "123456789", price: 1300, location: "Itajaí, SC" });
     expect(parseOlxExternalId("https://olx.com.br/item/x-123456789")).toBe("123456789");
   });
+  it("uses the dedicated card price and does not mistake a GPU model for a location", () => {
+    const summary = parseOlxSearchCard({
+      href: "https://www.olx.com.br/item/rx-6750-xt-123456789",
+      title: "RX 6750 XT 12GB",
+      text: "RX 6750 XT 12GB",
+      priceText: "R$ 1.850",
+      image: null,
+    });
+    expect(summary).toMatchObject({ price: 1850, currency: "BRL", location: null });
+  });
+  it("ignores installment values in favor of the cash card price", () => {
+    const summary = parseOlxSearchCard({
+      href: "https://www.olx.com.br/item/rx-6750-xt-123456789",
+      title: "RX 6750 XT 12GB",
+      text: "RX 6750 XT 12GB\nR$ 2.100\n3x de R$ 700,00",
+      priceText: "3x de R$ 700,00",
+      image: null,
+    });
+    expect(summary).toMatchObject({ price: 2100, currency: "BRL" });
+  });
   it("maps structured detail data", () => {
     const summary = parseOlxSearchCard({ href: "https://www.olx.com.br/item/x-123456789", title: "RTX", text: "RTX\nR$ 1.300", image: null });
     if (!summary) throw new Error("fixture_invalid");
     const details = mapOlxDetails(summary, { title: "RTX detalhada", description: "Texto", priceText: "R$ 1.250", location: "Itajaí, SC", sellerName: "João", images: ["https://img.olx.com.br/1.jpg"], attributes: { Marca: "Galax" }, publishedAt: "2026-08-01T00:00:00Z" });
     expect(details).toMatchObject({ title: "RTX detalhada", price: 1250, sellerName: "João" });
     expect(details.rawData).toBeUndefined();
+  });
+  it("recovers the first valid structured or visible detail price", () => {
+    const summary = parseOlxSearchCard({ href: "https://www.olx.com.br/item/x-123456789", title: "RTX", text: "RTX", image: null });
+    if (!summary) throw new Error("fixture_invalid");
+    const details = mapOlxDetails(summary, {
+      title: null,
+      description: null,
+      priceText: null,
+      priceCandidates: ["Preço indisponível", "R$ 1.750"],
+      location: null,
+      sellerName: null,
+      images: [],
+      attributes: {},
+      publishedAt: null,
+    });
+    expect(details).toMatchObject({ price: 1750, currency: "BRL" });
   });
   it("keeps OLX raw data only by opt-in and filters invalid images and dates", () => {
     const summary = parseOlxSearchCard({ href: "https://www.olx.com.br/item/x-123456789", title: "RTX", text: "RTX", image: null });
@@ -70,6 +106,15 @@ describe("Facebook parser", () => {
     const summary = parseFacebookSearchCard({ href: "https://www.facebook.com/marketplace/item/987654321/", text: "R$ 1.300\nRTX 3060 Ti\nItajaí, SC", ariaLabel: null, image: "https://scontent.example/a.jpg" });
     expect(summary).toMatchObject({ externalId: "987654321", title: "RTX 3060 Ti", price: 1300, location: "Itajaí, SC" });
     expect(parseFacebookExternalId("https://facebook.com/marketplace/item/987654321/")).toBe("987654321");
+  });
+  it("discards a malformed price that cannot fit in persistence", () => {
+    const summary = parseFacebookSearchCard({
+      href: "https://facebook.com/marketplace/item/987654321/",
+      text: "R$ 1.000.000.000.000,00\nRX 6750 XT 12GB",
+      ariaLabel: "RX 6750 XT 12GB",
+      image: null,
+    });
+    expect(summary).toMatchObject({ price: null, currency: "BRL" });
   });
   it("maps visible detail data", () => {
     const summary = parseFacebookSearchCard({ href: "https://facebook.com/marketplace/item/1", text: "R$ 1.300\nRTX", ariaLabel: "RTX", image: null });

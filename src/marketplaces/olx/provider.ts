@@ -38,17 +38,29 @@ export class OlxProvider implements MarketplaceProvider {
       await this.waitForAnySelector(page, OLX_SELECTORS.resultLinks);
       await progressiveScroll(page, 8);
       const cards = await page.evaluate((selectors): OlxSearchCard[] => {
-        const elements = selectors.flatMap((selector) => [...document.querySelectorAll<HTMLAnchorElement>(selector)]);
+        const elements = selectors.resultLinks.flatMap((selector) => [...document.querySelectorAll<HTMLAnchorElement>(selector)]);
         return [...new Set(elements)].map((element) => {
-          const card = element.closest<HTMLElement>("section.olx-adcard") ?? element;
+          const card = element.closest<HTMLElement>(selectors.resultCards.join(",")) ?? element;
+          const pricePattern = /R\$\s*[\d.]+(?:,\d{2})?/i;
+          const priceText = [
+            card.innerText,
+            ...[...card.querySelectorAll<HTMLElement>(selectors.resultPrice.join(","))]
+              .map((candidate) => candidate.textContent?.trim() ?? ""),
+          ]
+            .flatMap((candidate) => candidate.split("\n").map((line) => line.trim()).filter(Boolean))
+            .filter((candidate) => !/\b\d+\s*x\s*(?:de\s*)?R\$/i.test(candidate) && !/parcel(?:a|amento)/i.test(candidate))
+            .map((candidate) => candidate.match(pricePattern)?.[0] ?? null)
+            .find((candidate): candidate is string => candidate !== null)
+            ?? null;
           return {
             href: element.href,
             title: element.querySelector("h2")?.textContent ?? element.getAttribute("title"),
             text: card.innerText,
+            priceText,
             image: card.querySelector("img")?.src ?? null,
           };
         });
-      }, [...OLX_SELECTORS.resultLinks]);
+      }, OLX_SELECTORS);
       const parsed = cards.map(parseOlxSearchCard).filter((item): item is ListingSummary => item !== null);
       return deduplicateListings(parsed).slice(0, Math.min(criteria.limit, this.maxListings));
     } catch (error) {
@@ -96,7 +108,27 @@ export class OlxProvider implements MarketplaceProvider {
           const types = Array.isArray(value["@type"]) ? value["@type"] : [value["@type"]];
           return types.includes("Product") || types.includes("Vehicle");
         });
-        const offers = jsonLd?.["offers"] as Record<string, unknown> | undefined;
+        const offersValue = jsonLd?.["offers"];
+        const offers = (Array.isArray(offersValue) ? offersValue : [offersValue])
+          .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value));
+        const structuredPriceCandidates = offers.flatMap((offer): Array<string | number> => {
+          const priceSpecificationValue = offer["priceSpecification"];
+          const priceSpecifications = (Array.isArray(priceSpecificationValue) ? priceSpecificationValue : [priceSpecificationValue])
+            .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value));
+          return [offer["price"], offer["lowPrice"], ...priceSpecifications.map((value) => value["price"])]
+            .filter((value): value is string | number => typeof value === "string" || typeof value === "number");
+        });
+        const visiblePriceCandidates = [...document.querySelectorAll<HTMLElement>(selectors.detailPrice.join(","))]
+          .flatMap((element): string[] => {
+            const value = element.getAttribute("content") ?? element.getAttribute("value") ?? element.textContent?.trim();
+            return value && !/\b\d+\s*x\s*(?:de\s*)?R\$/i.test(value) && !/parcel(?:a|amento)/i.test(value) ? [value] : [];
+          });
+        const mainText = document.querySelector("main")?.innerText ?? "";
+        const priceCandidates = [
+          ...structuredPriceCandidates,
+          ...visiblePriceCandidates,
+          ...(mainText.match(/R\$\s*[\d.]+(?:,\d{2})?/gi) ?? []),
+        ];
         const imageData = jsonLd?.["image"];
         const jsonImages = Array.isArray(imageData) ? imageData.filter((item): item is string => typeof item === "string") : typeof imageData === "string" ? [imageData] : [];
         const attributes: Record<string, unknown> = {};
@@ -109,7 +141,8 @@ export class OlxProvider implements MarketplaceProvider {
         return {
           title: (jsonLd?.["name"] as string | undefined) ?? firstText(selectors.detailTitle),
           description: (jsonLd?.["description"] as string | undefined) ?? firstText(selectors.detailDescription),
-          priceText: typeof offers?.["price"] === "number" || typeof offers?.["price"] === "string" ? String(offers["price"]) : firstText(["[class*=price]", "main"]),
+          priceText: priceCandidates[0] === undefined ? null : String(priceCandidates[0]),
+          priceCandidates,
           location: firstText(["[aria-label*=Localização]", "[class*=location]"]),
           sellerName: firstText(selectors.detailSeller),
           images: [...new Set([...jsonImages, ...[...document.querySelectorAll<HTMLImageElement>("main img")].map((image) => image.src).filter((src) => /^https:\/\//.test(src))])],

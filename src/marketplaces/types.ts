@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_STORED_MONEY } from "../utils/money.js";
 
 export const marketplaceNames = ["facebook", "olx", "mercadolivre"] as const;
 export const marketplaceNameSchema = z.enum(marketplaceNames);
@@ -30,8 +31,8 @@ const httpUrlSchema = z.string().trim().max(4_096).url().refine(isHttpUrl, "URL 
 
 export const marketplaceSearchCriteriaSchema = z.object({
   query: z.string().trim().min(1),
-  minPrice: z.number().nonnegative().nullable().optional(),
-  maxPrice: z.number().positive().nullable().optional(),
+  minPrice: z.number().finite().nonnegative().max(MAX_STORED_MONEY).nullable().optional(),
+  maxPrice: z.number().finite().positive().max(MAX_STORED_MONEY).nullable().optional(),
   minYear: z.number().int().min(1900).max(2200).nullable().optional(),
   maxYear: z.number().int().min(1900).max(2200).nullable().optional(),
   location: z.string().trim().min(1).nullable().optional(),
@@ -44,7 +45,7 @@ export const listingSummarySchema = z.object({
   source: marketplaceNameSchema,
   externalId: z.string().trim().min(1).max(300).nullable(),
   title: z.string().trim().min(1).max(1_000),
-  price: z.number().nonnegative().nullable(),
+  price: z.number().finite().nonnegative().max(MAX_STORED_MONEY).nullable(),
   currency: z.string().trim().regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase()).nullable(),
   location: z.string().trim().min(1).max(500).nullable(),
   url: httpUrlSchema,

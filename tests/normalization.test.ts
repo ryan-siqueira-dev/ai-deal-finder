@@ -6,6 +6,9 @@ describe("normalization", () => {
     ["R$ 1.500,00", 1500],
     ["R$ 75.000", 75000],
     ["1299.90", 1299.9],
+    ["R$ 999.999.999.999,99", 999_999_999_999.99],
+    ["R$ 1.000.000.000.000,00", null],
+    [1_000_000_000_000, null],
     [null, null],
     ["Consulte", null],
   ])("parseBRLPrice(%s)", (input, expected) => expect(parseBRLPrice(input)).toBe(expected));

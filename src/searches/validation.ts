@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { listingCategorySchema } from "../categories/types.js";
 import { marketplaceNameSchema } from "../marketplaces/types.js";
+import { MAX_STORED_MONEY } from "../utils/money.js";
 
-const nullableMoney = z.number().finite().nonnegative().max(999_999_999_999.99).nullable();
+const nullableMoney = z.number().finite().nonnegative().max(MAX_STORED_MONEY).nullable();
 const nullableYear = z.number().int().min(1900).max(2200).nullable();
 
 export const searchDefinitionSchema = z.object({

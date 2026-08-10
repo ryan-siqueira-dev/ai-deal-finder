@@ -1,0 +1,1 @@
+export const MAX_STORED_MONEY = 999_999_999_999.99;

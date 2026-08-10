@@ -1,7 +1,11 @@
+import { MAX_STORED_MONEY } from "./money.js";
+
 const DIACRITICS = /[\u0300-\u036f]/g;
 
 export function parseBRLPrice(value: string | number | null | undefined): number | null {
-  if (typeof value === "number") return Number.isFinite(value) && value >= 0 ? value : null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0 && value <= MAX_STORED_MONEY ? value : null;
+  }
   if (!value) return null;
   const cleaned = value
     .replace(/\s/g, "")
@@ -14,7 +18,7 @@ export function parseBRLPrice(value: string | number | null | undefined): number
   else if (/^-?\d{1,3}(\.\d{3})+$/.test(cleaned)) normalized = cleaned.replace(/\./g, "");
 
   const parsed = Number(normalized);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= MAX_STORED_MONEY ? parsed : null;
 }
 
 export function normalizeTitle(value: string): string {
