@@ -10,12 +10,28 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/deal_finder_ci
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: deal_finder_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d deal_finder_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -23,7 +39,24 @@ jobs:
         run: npm ci
       - name: Generate Prisma client
         run: npm run prisma:generate
+      - name: Validate Prisma schema
+        run: npm run prisma:validate
+      - name: Apply database migrations
+        run: npm run prisma:migrate
+      - name: Typecheck
+        run: npm run typecheck
       - name: Build
         run: npm run build
-      - name: Test
-        run: npm test
+      - name: Test with coverage thresholds
+        run: npm run test:coverage
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Validate Docker Compose
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.vnc.yml config --quiet
+      - name: Validate Dockerfile
+        run: docker build --check .
+      - name: Build container image
+        run: docker build --tag ai-deal-finder:ci .

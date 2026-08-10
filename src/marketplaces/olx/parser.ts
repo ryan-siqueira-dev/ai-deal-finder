@@ -27,7 +27,7 @@ export function parseOlxSearchCard(card: OlxSearchCard): ListingSummary | null {
     currency: priceMatch ? "BRL" : null,
     location,
     url: card.href,
-    imageUrl: card.image,
+    imageUrl: card.image && /^https?:\/\//i.test(card.image) ? card.image : null,
   };
 }
 
@@ -42,20 +42,21 @@ export interface OlxDetailDocument {
   publishedAt: string | null;
 }
 
-export function mapOlxDetails(summary: ListingSummary, detail: OlxDetailDocument): ListingDetails {
+export function mapOlxDetails(summary: ListingSummary, detail: OlxDetailDocument, storeRawData = false): ListingDetails {
   const parsedDate = detail.publishedAt ? new Date(detail.publishedAt) : null;
+  const images = [...new Set(detail.images.filter((image) => /^https?:\/\//i.test(image)))].slice(0, 50);
   return {
     ...summary,
     title: nullableText(detail.title) ?? summary.title,
     price: parseBRLPrice(detail.priceText) ?? summary.price,
     currency: parseBRLPrice(detail.priceText) != null ? "BRL" : summary.currency,
     location: nullableText(detail.location) ?? summary.location,
-    description: nullableText(detail.description),
-    sellerName: nullableText(detail.sellerName),
-    images: [...new Set(detail.images)],
-    imageUrl: detail.images[0] ?? summary.imageUrl,
-    attributes: detail.attributes,
+    description: nullableText(detail.description)?.slice(0, 100_000) ?? null,
+    sellerName: nullableText(detail.sellerName)?.slice(0, 500) ?? null,
+    images,
+    imageUrl: images[0] ?? summary.imageUrl,
+    attributes: Object.fromEntries(Object.entries(detail.attributes).slice(0, 200)),
     publishedAt: parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null,
-    rawData: detail,
+    ...(storeRawData ? { rawData: detail } : {}),
   };
 }

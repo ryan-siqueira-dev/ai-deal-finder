@@ -15,10 +15,15 @@ describe("deduplication", () => {
     expect(deduplicateListings([base, duplicate, facebook])).toEqual([base, facebook]);
   });
 
-  it("falls back to normalized url then fingerprint", () => {
+  it("falls back to the normalized URL when no external id exists", () => {
     const anonymous = { ...base, externalId: null, url: "https://olx.com.br/item/bmw-1?utm_source=x" };
     const duplicate = { ...anonymous, url: "https://olx.com.br/item/bmw-1?utm_medium=y" };
     expect(deduplicateListings([anonymous, duplicate])).toHaveLength(1);
+  });
+
+  it("keeps distinct external ids even when the fingerprint is identical", () => {
+    const anotherSeller = { ...base, externalId: "2", url: "https://olx.com.br/item/bmw-2" };
+    expect(deduplicateListings([base, anotherSeller])).toEqual([base, anotherSeller]);
   });
 });
 

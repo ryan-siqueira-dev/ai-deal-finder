@@ -18,6 +18,7 @@ export class FacebookMarketplaceProvider implements MarketplaceProvider {
     private readonly maxListings: number,
     private readonly timeoutMs: number,
     private readonly logger: Logger,
+    private readonly storeRawData: boolean,
     executablePath?: string,
   ) {
     this.#browser = new BrowserSession({ headless, storageStatePath, ...(executablePath ? { executablePath } : {}) });
@@ -37,20 +38,22 @@ export class FacebookMarketplaceProvider implements MarketplaceProvider {
       await this.assertAuthenticated(page);
       await page.locator(FACEBOOK_SELECTORS.resultLinks.join(",")).first().waitFor({ state: "attached" });
       await progressiveScroll(page, 8, 900);
-      const cards = await page.evaluate((selector): FacebookSearchCard[] =>
-        [...document.querySelectorAll<HTMLAnchorElement>(selector)].map((element) => ({
+      const cards = await page.evaluate((selectors): FacebookSearchCard[] => {
+        const elements = selectors.flatMap((selector) => [...document.querySelectorAll<HTMLAnchorElement>(selector)]);
+        return [...new Set(elements)].map((element) => ({
           href: element.href,
           text: element.innerText,
           ariaLabel: element.getAttribute("aria-label"),
           image: element.querySelector("img")?.src ?? null,
-        })), FACEBOOK_SELECTORS.resultLinks[0]);
+        }));
+      }, [...FACEBOOK_SELECTORS.resultLinks]);
       const parsed = cards.map(parseFacebookSearchCard).filter((item): item is ListingSummary => item !== null);
       return deduplicateListings(parsed).slice(0, Math.min(criteria.limit, this.maxListings));
     } catch (error) {
       if (error instanceof ProviderError) throw error;
       throw new ProviderError("facebook_search_failed", "Facebook Marketplace search failed; inspect the current layout", true, { cause: error });
     } finally {
-      await page.close();
+      await page.close().catch((error: unknown) => { this.logger.warn({ event: "browser_page_close_failed", provider: this.name, err: error }, "Browser page could not be closed cleanly"); });
     }
   }
 
@@ -74,9 +77,11 @@ export class FacebookMarketplaceProvider implements MarketplaceProvider {
         const description = descriptionIndex >= 0 ? lines.slice(descriptionIndex + 1, descriptionIndex + 8).join("\n") : null;
         const sellerIndex = lines.findIndex((line) => /informações do vendedor|seller information/i.test(line));
         const sellerName = sellerIndex >= 0 ? lines[sellerIndex + 1] ?? null : null;
-        const images = [...document.querySelectorAll<HTMLImageElement>('img[src^="https://"]')]
+        const ogImage = document.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.content;
+        const images = [...(main?.querySelectorAll<HTMLImageElement>('img[src^="https://"]') ?? [])]
           .map((image) => image.src)
           .filter((src) => !src.includes("emoji") && !src.includes("profile"));
+        if (ogImage?.startsWith("https://")) images.unshift(ogImage);
         const attributes: Record<string, unknown> = {};
         for (let index = 0; index < lines.length - 1; index += 1) {
           const key = lines[index];
@@ -85,13 +90,13 @@ export class FacebookMarketplaceProvider implements MarketplaceProvider {
         }
         return { title, text, description, priceText, location, sellerName, images, attributes };
       }, FACEBOOK_SELECTORS);
-      return mapFacebookDetails(listing, detail);
+      return mapFacebookDetails(listing, detail, this.storeRawData);
     } catch (error) {
       if (error instanceof ProviderError) throw error;
       this.logger.warn({ event: "listing_details_failed", provider: this.name, url: listing.url, err: error }, "Facebook detail failed");
       throw new ProviderError("facebook_listing_details_failed", "Could not parse Facebook listing details", true, { cause: error });
     } finally {
-      await page.close();
+      await page.close().catch((error: unknown) => { this.logger.warn({ event: "browser_page_close_failed", provider: this.name, err: error }, "Browser page could not be closed cleanly"); });
     }
   }
 
@@ -103,7 +108,7 @@ export class FacebookMarketplaceProvider implements MarketplaceProvider {
       await this.assertAuthenticated(page);
       await page.screenshot({ path: outputPath, fullPage: true });
     } finally {
-      await page.close();
+      await page.close().catch((error: unknown) => { this.logger.warn({ event: "browser_page_close_failed", provider: this.name, err: error }, "Browser page could not be closed cleanly"); });
     }
   }
 
@@ -119,6 +124,7 @@ export class FacebookMarketplaceProvider implements MarketplaceProvider {
     const hasLoginForm = await page.locator(FACEBOOK_SELECTORS.loginMarkers.join(",")).first().isVisible().catch(() => false);
     if (onLoginUrl || hasLoginForm) {
       this.logger.warn({ event: "facebook_session_expired" }, "Facebook session expired");
+      this.#browser.reloadOnNextPage();
       throw new ProviderError("facebook_session_expired", "Run npm run facebook:login to refresh the session");
     }
   }

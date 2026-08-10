@@ -26,15 +26,27 @@ describe("deterministic filters", () => {
     expect(result.reasons).toEqual(expect.arrayContaining(["duplicate_listing", "already_analyzed_without_change", "over_budget", "category_mismatch", "forbidden_word:defeito", "location_mismatch"]));
   });
 
-  it("accepts nearby cities in the same state when a radius is configured", () => {
+  it("rejects a different city when the requested radius cannot be verified", () => {
     const base = {
       structured: { category: "gpu" as const, data: {}, extractionConfidence: 0.8 },
       criteria: { category: "gpu" as const, location: "Itajaí, SC", radiusKm: 150 },
       alreadyAnalyzed: false,
       duplicate: false,
     };
-    expect(applyDeterministicFilters({ ...base, listing: listingFixture({ location: "São José, SC" }) }).passed).toBe(true);
+    expect(applyDeterministicFilters({ ...base, listing: listingFixture({ location: "Itajaí, SC" }) }).passed).toBe(true);
+    expect(applyDeterministicFilters({ ...base, listing: listingFixture({ location: "São José, SC" }) }).reasons).toContain("location_mismatch");
     expect(applyDeterministicFilters({ ...base, listing: listingFixture({ location: "Curitiba - Paraná" }) }).reasons).toContain("location_mismatch");
+  });
+
+  it("rejects missing location and non-positive prices", () => {
+    const result = applyDeterministicFilters({
+      listing: listingFixture({ price: 0, location: null }),
+      structured: { category: "gpu", data: {}, extractionConfidence: 0.8 },
+      criteria: { category: "gpu", location: "Itajaí" },
+      alreadyAnalyzed: false,
+      duplicate: false,
+    });
+    expect(result.reasons).toEqual(expect.arrayContaining(["invalid_price", "location_unknown"]));
   });
 
   it("rejects marketplace results for a different model", () => {

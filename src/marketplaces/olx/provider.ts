@@ -18,6 +18,7 @@ export class OlxProvider implements MarketplaceProvider {
     private readonly maxListings: number,
     private readonly timeoutMs: number,
     private readonly logger: Logger,
+    private readonly storeRawData: boolean,
     executablePath?: string,
   ) {
     this.#browser = new BrowserSession({ headless, storageStatePath, ...(executablePath ? { executablePath } : {}) });
@@ -54,7 +55,7 @@ export class OlxProvider implements MarketplaceProvider {
       if (error instanceof ProviderError) throw error;
       throw new ProviderError("olx_search_failed", "OLX web search failed; inspect current layout", true, { cause: error });
     } finally {
-      await page.close();
+      await page.close().catch((error: unknown) => { this.logger.warn({ event: "browser_page_close_failed", provider: this.name, err: error }, "Browser page could not be closed cleanly"); });
     }
   }
 
@@ -65,7 +66,11 @@ export class OlxProvider implements MarketplaceProvider {
       page.setDefaultTimeout(this.timeoutMs);
       await page.goto(listing.url, { waitUntil: "domcontentloaded" });
       await this.assertNotBlocked(page);
-      await page.locator('script[type="application/ld+json"]').first().waitFor({ state: "attached" });
+      await page.locator([
+        'script[type="application/ld+json"]',
+        ...OLX_SELECTORS.detailTitle,
+        ...OLX_SELECTORS.detailDescription,
+      ].join(",")).first().waitFor({ state: "attached" });
       const detail = await page.evaluate((selectors): OlxDetailDocument => {
         const firstText = (candidates: readonly string[]): string | null => {
           for (const selector of candidates) {
@@ -74,9 +79,23 @@ export class OlxProvider implements MarketplaceProvider {
           }
           return null;
         };
-        const jsonLd = [...document.querySelectorAll('script[type="application/ld+json"]')]
-          .map((script) => { try { return JSON.parse(script.textContent ?? "null") as Record<string, unknown>; } catch { return null; } })
-          .find((value) => value && (value["@type"] === "Product" || value["@type"] === "Vehicle"));
+        const jsonLdValues = [...document.querySelectorAll('script[type="application/ld+json"]')]
+          .flatMap((script): Record<string, unknown>[] => {
+            try {
+              const parsed = JSON.parse(script.textContent ?? "null") as unknown;
+              const roots = Array.isArray(parsed) ? parsed : [parsed];
+              return roots.flatMap((root) => {
+                if (!root || typeof root !== "object" || Array.isArray(root)) return [];
+                const record = root as Record<string, unknown>;
+                const graph = Array.isArray(record["@graph"]) ? record["@graph"] : [];
+                return [record, ...graph.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))];
+              });
+            } catch { return []; }
+          });
+        const jsonLd = jsonLdValues.find((value) => {
+          const types = Array.isArray(value["@type"]) ? value["@type"] : [value["@type"]];
+          return types.includes("Product") || types.includes("Vehicle");
+        });
         const offers = jsonLd?.["offers"] as Record<string, unknown> | undefined;
         const imageData = jsonLd?.["image"];
         const jsonImages = Array.isArray(imageData) ? imageData.filter((item): item is string => typeof item === "string") : typeof imageData === "string" ? [imageData] : [];
@@ -98,13 +117,13 @@ export class OlxProvider implements MarketplaceProvider {
           publishedAt: typeof jsonLd?.["datePosted"] === "string" ? jsonLd["datePosted"] : null,
         };
       }, OLX_SELECTORS);
-      return mapOlxDetails(listing, detail);
+      return mapOlxDetails(listing, detail, this.storeRawData);
     } catch (error) {
       if (error instanceof ProviderError) throw error;
       this.logger.warn({ event: "listing_details_failed", provider: this.name, url: listing.url, err: error }, "OLX detail failed");
       throw new ProviderError("olx_listing_details_failed", "Could not parse OLX listing details", true, { cause: error });
     } finally {
-      await page.close();
+      await page.close().catch((error: unknown) => { this.logger.warn({ event: "browser_page_close_failed", provider: this.name, err: error }, "Browser page could not be closed cleanly"); });
     }
   }
 
@@ -115,7 +134,7 @@ export class OlxProvider implements MarketplaceProvider {
       await page.goto(url, { waitUntil: "domcontentloaded" });
       await page.screenshot({ path: outputPath, fullPage: true });
     } finally {
-      await page.close();
+      await page.close().catch((error: unknown) => { this.logger.warn({ event: "browser_page_close_failed", provider: this.name, err: error }, "Browser page could not be closed cleanly"); });
     }
   }
 
@@ -139,6 +158,7 @@ export class OlxProvider implements MarketplaceProvider {
       || await page.getByText(/sorry, you have been blocked|unable to access olx\.com\.br/i).first().isVisible().catch(() => false);
     if (blocked) {
       this.logger.warn({ event: "provider_access_blocked", provider: this.name }, "OLX blocked this host; no bypass will be attempted");
+      this.#browser.reloadOnNextPage();
       throw new ProviderError("olx_access_blocked", "OLX/Cloudflare blocked this host. Use an authorized normal-access environment; bypass is intentionally not implemented.");
     }
   }

@@ -17,11 +17,18 @@ export class MarketplaceRegistry {
     return provider;
   }
 
+  has(name: MarketplaceName): boolean {
+    return this.#providers.has(name);
+  }
+
   list(): MarketplaceName[] {
     return [...this.#providers.keys()];
   }
 
   async close(): Promise<void> {
-    await Promise.all([...this.#providers.values()].map((provider) => provider.close?.()));
+    const operations = [...this.#providers.values()].flatMap((provider) => provider.close ? [provider.close()] : []);
+    const results = await Promise.allSettled(operations);
+    const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (failures.length) throw new AggregateError(failures.map((failure) => failure.reason), "marketplace_shutdown_failed");
   }
 }

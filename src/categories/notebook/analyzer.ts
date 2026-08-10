@@ -1,11 +1,18 @@
 import type { ListingDetails } from "../../marketplaces/types.js";
 import type { CategoryAnalyzer } from "../analyzer.js";
-import { containsDefect, listingText, numberValue, stringValue } from "../helpers.js";
+import { containsDefect, includesTerm, listingText, numberValue, stringValue } from "../helpers.js";
 import type { AnalysisContext, CategoryAnalysis, StructuredListing } from "../types.js";
 import { normalizeGpuModel } from "../gpu/analyzer.js";
 import { notebookDataSchema } from "./schema.js";
 
 const MAKERS = ["apple", "dell", "lenovo", "asus", "acer", "samsung", "hp", "positivo", "avell", "lg"];
+
+function intelCpuGeneration(cpu: string | null): number | null {
+  const digits = cpu?.match(/i[3579][ -]?(\d{4,5})/)?.[1];
+  if (!digits) return null;
+  const firstTwo = Number(digits.slice(0, 2));
+  return firstTwo >= 10 && firstTwo <= 14 ? firstTwo : Number(digits[0]);
+}
 
 export class NotebookAnalyzer implements CategoryAnalyzer {
   readonly category = "notebook" as const;
@@ -20,10 +27,10 @@ export class NotebookAnalyzer implements CategoryAnalyzer {
     const gpu = normalizeGpuModel(text);
     const defects = containsDefect(text) ? ["O anúncio menciona defeito ou avaria"] : [];
     const data = notebookDataSchema.parse({
-      manufacturer: MAKERS.find((maker) => text.includes(maker)) ?? null,
+      manufacturer: MAKERS.find((maker) => includesTerm(text, maker)) ?? null,
       model: null,
       cpu,
-      cpuGeneration: cpu?.match(/i[3579][ -]?(\d{1,2})\d{3}/)?.[1] ? Number(cpu.match(/i[3579][ -]?(\d{1,2})\d{3}/)?.[1]) : null,
+      cpuGeneration: intelCpuGeneration(cpu),
       ramGb: ram ? Number(ram) : null,
       storageGb,
       storageType: /\bssd\b/.test(text) ? "ssd" : /\bhdd?\b/.test(text) ? "hdd" : "unknown",

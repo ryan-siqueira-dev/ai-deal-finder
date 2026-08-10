@@ -36,6 +36,7 @@ export function normalizeUrl(value: string): string {
       kept.append(key, item);
     }
   }
+  kept.sort();
   url.search = kept.toString();
   url.hostname = url.hostname.toLowerCase().replace(/^www\./, "");
   url.pathname = url.pathname.replace(/\/+$/, "") || "/";

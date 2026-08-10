@@ -13,6 +13,7 @@ function normalizedCallback(value: URL): string {
   return `${value.origin}${value.pathname.replace(/\/$/, "")}`;
 }
 
+async function main(): Promise<void> {
 const config = loadConfig();
 const credentials = {
   clientId: required(config.MERCADOLIVRE_CLIENT_ID, "MERCADOLIVRE_CLIENT_ID"),
@@ -56,4 +57,11 @@ try {
   stdout.write(`Autorização concluída. Tokens salvos com acesso restrito em ${config.MERCADOLIVRE_TOKEN_PATH}.\n`);
 } finally {
   readline.close();
+}
+}
+
+try { await main(); }
+catch (error) {
+  console.error(error instanceof Error ? error.message : "Falha na autorização do Mercado Livre.");
+  process.exitCode = 1;
 }
