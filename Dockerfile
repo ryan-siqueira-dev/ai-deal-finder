@@ -28,9 +28,12 @@ RUN apt-get update \
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/dist ./dist
 COPY prisma ./prisma
+COPY LICENSE ./LICENSE
 COPY docker/server-entrypoint.sh ./docker/server-entrypoint.sh
 RUN mkdir -p /app/data /app/.runtime \
     && chmod +x /app/docker/server-entrypoint.sh \
     && chown -R pwuser:pwuser /app
 USER pwuser
-CMD ["/app/docker/server-entrypoint.sh"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD kill -0 1 || exit 1
+ENTRYPOINT ["/app/docker/server-entrypoint.sh"]
+CMD ["node", "dist/index.js"]

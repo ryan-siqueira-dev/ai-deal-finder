@@ -15,6 +15,9 @@ export class MercadoLivreWebProvider implements MarketplaceProvider {
   readonly name = "mercadolivre" as const;
   readonly #api: MercadoLivreClient;
   #context: BrowserContext | null = null;
+  #initializing: Promise<BrowserContext> | null = null;
+  #sessionRestored = false;
+  #closed = false;
 
   public constructor(
     private readonly profilePath: string,
@@ -45,12 +48,12 @@ export class MercadoLivreWebProvider implements MarketplaceProvider {
       const cards = await page.evaluate((): MercadoLivreWebCard[] =>
         [...document.querySelectorAll<HTMLElement>("li.ui-search-layout__item")].map((card) => {
           const link = card.querySelector<HTMLAnchorElement>("a.poly-component__title");
-          const amount = card.querySelector<HTMLElement>(".poly-price__amount");
+          const amount = card.querySelector<HTMLElement>(".poly-price__amount, .andes-money-amount");
           const location = card.querySelector<HTMLElement>(".poly-component__location, [class*=location]");
           return {
             href: link?.href ?? "",
             title: link?.textContent ?? null,
-            priceText: amount?.textContent ?? null,
+            priceText: amount?.getAttribute("aria-label") ?? amount?.textContent ?? null,
             image: card.querySelector<HTMLImageElement>("img")?.src ?? null,
             location: location?.textContent ?? null,
           };
@@ -63,7 +66,7 @@ export class MercadoLivreWebProvider implements MarketplaceProvider {
       if (error instanceof ProviderError) throw error;
       throw new ProviderError("mercadolivre_web_search_failed", "Mercado Livre web search failed; refresh the browser profile if verification is requested", true, { cause: error });
     } finally {
-      await page.close();
+      await page.close().catch((error: unknown) => { this.logger.warn({ event: "browser_page_close_failed", provider: this.name, err: error }, "Browser page could not be closed cleanly"); });
     }
   }
 
@@ -86,9 +89,24 @@ export class MercadoLivreWebProvider implements MarketplaceProvider {
     };
   }
 
+  async inspect(url: string, outputPath: string): Promise<void> {
+    await this.requireProfile();
+    const page = await (await this.context()).newPage();
+    try {
+      page.setDefaultTimeout(this.timeoutMs);
+      await page.goto(url, { waitUntil: "domcontentloaded" });
+      await page.screenshot({ path: outputPath, fullPage: true });
+    } finally { await page.close().catch((error: unknown) => { this.logger.warn({ event: "browser_page_close_failed", provider: this.name, err: error }, "Browser page could not be closed cleanly"); }); }
+  }
+
   async close(): Promise<void> {
-    await this.#context?.close();
+    this.#closed = true;
+    await this.#initializing?.catch(() => undefined);
+    const context = this.#context;
     this.#context = null;
+    this.#initializing = null;
+    this.#sessionRestored = false;
+    await context?.close();
   }
 
   private async requireProfile(): Promise<void> {
@@ -97,20 +115,37 @@ export class MercadoLivreWebProvider implements MarketplaceProvider {
   }
 
   private async context(): Promise<BrowserContext> {
-    if (!this.#context) this.#context = await chromium.launchPersistentContext(this.profilePath, {
+    if (this.#closed) throw new ProviderError("mercadolivre_web_provider_closed", "Mercado Livre web provider is closed");
+    if (this.#context) return this.#context;
+    if (!this.#initializing) {
+      this.#initializing = this.createContext().finally(() => { this.#initializing = null; });
+    }
+    return this.#initializing;
+  }
+
+  private async createContext(): Promise<BrowserContext> {
+    const context = await chromium.launchPersistentContext(this.profilePath, {
       headless: this.headless,
       locale: "pt-BR",
       timezoneId: "America/Sao_Paulo",
       ...(this.executablePath ? { executablePath: this.executablePath } : {}),
     });
-    try {
-      const state = JSON.parse(await readFile(this.storageStatePath, "utf8")) as {
-        cookies?: Parameters<BrowserContext["addCookies"]>[0];
-      };
-      if (Array.isArray(state.cookies) && state.cookies.length > 0) await this.#context.addCookies(state.cookies);
-    } catch (error) {
-      this.logger.warn({ event: "mercadolivre_web_session_restore_failed", err: error }, "Mercado Livre web cookies could not be restored");
+    if (this.#closed) {
+      await context.close().catch(() => undefined);
+      throw new ProviderError("mercadolivre_web_provider_closed", "Mercado Livre web provider is closed");
     }
-    return this.#context;
+    this.#context = context;
+    if (!this.#sessionRestored) {
+      try {
+        const state = JSON.parse(await readFile(this.storageStatePath, "utf8")) as {
+          cookies?: Parameters<BrowserContext["addCookies"]>[0];
+        };
+        if (Array.isArray(state.cookies) && state.cookies.length > 0) await context.addCookies(state.cookies);
+      } catch (error) {
+        this.logger.warn({ event: "mercadolivre_web_session_restore_failed", err: error }, "Mercado Livre web cookies could not be restored");
+      }
+      this.#sessionRestored = true;
+    }
+    return context;
   }
 }

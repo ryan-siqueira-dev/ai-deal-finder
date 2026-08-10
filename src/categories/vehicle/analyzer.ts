@@ -1,12 +1,12 @@
 import type { ListingDetails } from "../../marketplaces/types.js";
 import { normalizeMileage } from "../../utils/normalization.js";
 import type { CategoryAnalyzer } from "../analyzer.js";
-import { containsDefect, listingText, numberValue, stringValue } from "../helpers.js";
+import { containsDefect, includesTerm, listingText, numberValue, stringValue } from "../helpers.js";
 import type { AnalysisContext, CategoryAnalysis, StructuredListing } from "../types.js";
 import { vehicleDataSchema } from "./schema.js";
 
 const BRANDS = ["bmw", "chevrolet", "fiat", "ford", "honda", "hyundai", "jeep", "kia", "mercedes benz", "nissan", "peugeot", "renault", "toyota", "volkswagen", "volvo"];
-const MODELS = ["320i", "civic", "corolla", "gol", "polo", "onix", "cruze", "hb20", "creta", "compass", "renegade", "t cross", "nivus", "hilux", "amarok", "ranger"];
+const MODELS = ["t cross", "renegade", "compass", "corolla", "cruze", "civic", "creta", "amarok", "ranger", "hilux", "golf", "320i", "polo", "onix", "hb20", "nivus", "gol"];
 
 function detectTransmission(text: string): "manual" | "automatic" | "cvt" | "automated" | "unknown" {
   if (/\bcvt\b/.test(text)) return "cvt";
@@ -37,21 +37,21 @@ export class VehicleAnalyzer implements CategoryAnalyzer {
     const sellerClaimsNoAuction = /nunca (?:foi )?de leilao|nao (?:e|foi) de leilao|sem leilao/.test(text);
     const sellerClaimsNoAccident = /nunca (?:foi )?batid|sem sinistro|nao (?:e|foi) sinistrad/.test(text);
     const data = vehicleDataSchema.parse({
-      brand: BRANDS.find((brand) => text.includes(brand)) ?? null,
-      model: MODELS.find((model) => text.includes(model)) ?? null,
+      brand: BRANDS.find((brand) => includesTerm(text, brand)) ?? null,
+      model: MODELS.find((model) => includesTerm(text, model)) ?? null,
       version: null,
       year: yearMatch?.[1] ? Number(yearMatch[1]) : null,
       mileage: normalizeMileage(mileageMatch?.[1]),
       transmission: detectTransmission(text),
       fuel: detectFuel(text),
-      maintenanceMentioned: /revis|manutencao|oleo trocado/.test(text),
+      maintenanceMentioned: /\b(?:revisad[oa]|revisoes? (?:feitas?|em dia)|manutencao (?:feita|em dia)|oleo trocado)\b/.test(text),
       auctionMentioned: /leilao/.test(text),
       sellerClaimsNoAuction,
       accidentMentioned: /sinistro|batid|colisao/.test(text),
       sellerClaimsNoAccident,
       tradeAccepted: /aceito troca|troco/.test(text),
       financingAvailable: /financi/.test(text),
-      condition: containsDefect(text) ? "damaged" : /\b0\s*km\b|novo/.test(text) ? "new" : "used",
+      condition: containsDefect(text) ? "damaged" : /\b(?:0\s*km|zero\s*km)\b/.test(text) ? "new" : "used",
     });
     const knownFields = [data.brand, data.model, data.year, data.mileage].filter((value) => value !== null).length;
     return { category: this.category, data, extractionConfidence: 0.35 + knownFields * 0.14 };
@@ -77,6 +77,7 @@ export class VehicleAnalyzer implements CategoryAnalyzer {
     if (data["auctionMentioned"] === true && data["sellerClaimsNoAuction"] !== true) risks.push("Há menção a leilão");
     if (data["sellerClaimsNoAuction"] === true) risks.push("Ausência de leilão é apenas alegação do vendedor; consulte laudo e histórico");
     if (data["accidentMentioned"] === true && data["sellerClaimsNoAccident"] !== true) risks.push("Há menção a sinistro ou colisão");
+    if (data["sellerClaimsNoAccident"] === true) risks.push("Ausência de sinistro é apenas alegação do vendedor; consulte laudo e histórico");
     if (data["condition"] === "damaged") risks.push("O anúncio menciona problema ou avaria");
     const advantages = data["maintenanceMentioned"] === true ? ["O anúncio menciona manutenção ou revisões"] : [];
     return { featureScore: Math.min(15, 8 + advantages.length * 3), riskScore: Math.max(0, 14 - risks.length * 3), advantages, risks };

@@ -8,69 +8,74 @@ datasource db {
 }
 
 model Search {
-  id              String           @id @default(cuid())
-  name            String
-  query           String
-  category        String
-  minPrice        Decimal?         @db.Decimal(14, 2)
-  maxPrice        Decimal?         @db.Decimal(14, 2)
-  minYear         Int?
-  maxYear         Int?
-  location        String?
-  radiusKm        Int?
-  minimumScore    Int              @default(70)
-  intervalMinutes Int              @default(60)
-  providers       String[]
-  forbiddenWords  String[]
-  active          Boolean          @default(true)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  lastRunAt       DateTime?
-  listings        SearchListing[]
-  analyses        ListingAnalysis[]
-  notifications   Notification[]
+  id                String            @id @default(cuid())
+  name              String
+  query             String
+  category          String
+  minPrice          Decimal?          @db.Decimal(14, 2)
+  maxPrice          Decimal?          @db.Decimal(14, 2)
+  minYear           Int?
+  maxYear           Int?
+  location          String?
+  radiusKm          Int?
+  minimumScore      Int               @default(70)
+  intervalMinutes   Int               @default(60)
+  providers         String[]          @default([])
+  forbiddenWords    String[]          @default([])
+  active            Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  lastRunAt         DateTime?
+  runLeaseId        String?
+  runLeaseExpiresAt DateTime?
+  listings          SearchListing[]
+  analyses          ListingAnalysis[]
+  notifications     Notification[]
 
   @@index([active, lastRunAt])
+  @@index([runLeaseExpiresAt])
 }
 
 model Listing {
-  id              String                  @id @default(cuid())
-  source          String
-  category        String
-  externalId      String?
-  fingerprint     String
-  title           String
-  description     String?
-  price           Decimal?                @db.Decimal(14, 2)
-  currency        String?
-  location        String?
-  sellerName      String?
-  url             String
-  normalizedUrl   String
-  imageUrl        String?
-  images          String[]
-  attributes      Json?
-  publishedAt     DateTime?
-  firstSeenAt     DateTime                @default(now())
-  lastSeenAt      DateTime                @default(now())
-  lastCheckedAt   DateTime                @default(now())
-  active          Boolean                 @default(true)
-  rawData         Json?
-  contentHash     String?
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
-  searches        SearchListing[]
-  priceHistory    ListingPriceHistory[]
-  structuredData  StructuredListingData?
-  analyses        ListingAnalysis[]
-  notifications   Notification[]
-  matchesAsA      CrossMarketplaceMatch[] @relation("MatchA")
-  matchesAsB      CrossMarketplaceMatch[] @relation("MatchB")
+  id             String                  @id @default(cuid())
+  source         String
+  category       String
+  externalId     String?
+  fingerprint    String
+  title          String
+  description    String?
+  price          Decimal?                @db.Decimal(14, 2)
+  currency       String?
+  location       String?
+  sellerName     String?
+  url            String
+  normalizedUrl  String
+  imageUrl       String?
+  images         String[]                @default([])
+  attributes     Json?
+  publishedAt    DateTime?
+  firstSeenAt    DateTime                @default(now())
+  lastSeenAt     DateTime                @default(now())
+  lastCheckedAt  DateTime                @default(now())
+  active         Boolean                 @default(true)
+  suppressedAt   DateTime?
+  rawData        Json?
+  contentHash    String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  searches       SearchListing[]
+  priceHistory   ListingPriceHistory[]
+  structuredData StructuredListingData?
+  analyses       ListingAnalysis[]
+  notifications  Notification[]
+  matchesAsA     CrossMarketplaceMatch[] @relation("MatchA")
+  matchesAsB     CrossMarketplaceMatch[] @relation("MatchB")
 
   @@unique([source, externalId])
-  @@unique([source, normalizedUrl])
+  @@index([source, normalizedUrl])
   @@index([source, fingerprint])
   @@index([category, active, lastSeenAt])
+  @@index([suppressedAt])
   @@index([price])
 }
 
@@ -118,33 +123,47 @@ model ListingAnalysis {
   marketMedianPrice      Decimal?       @db.Decimal(14, 2)
   estimatedMarketPrice   Decimal?       @db.Decimal(14, 2)
   priceDifferencePercent Decimal?       @db.Decimal(8, 2)
-  advantages             String[]
-  risks                  String[]
-  reason                  String
-  analysisModel           String?
-  inputHash               String
-  createdAt               DateTime       @default(now())
-  listing                 Listing        @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  search                  Search         @relation(fields: [searchId], references: [id], onDelete: Cascade)
-  notifications           Notification[]
+  advantages             String[]       @default([])
+  risks                  String[]       @default([])
+  reason                 String
+  analysisModel          String?
+  llmAttemptedAt         DateTime?
+  inputHash              String
+  createdAt              DateTime       @default(now())
+  listing                Listing        @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  search                 Search         @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  notifications          Notification[]
 
+  @@unique([listingId, searchId, inputHash])
   @@index([listingId, searchId, createdAt])
   @@index([searchId, score])
 }
 
+enum NotificationStatus {
+  pending
+  sending
+  sent
+  failed
+}
+
 model Notification {
-  id         String          @id @default(cuid())
+  id         String             @id @default(cuid())
   listingId  String
   searchId   String
   analysisId String
   channel    String
-  sentAt     DateTime        @default(now())
-  listing    Listing         @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  search     Search          @relation(fields: [searchId], references: [id], onDelete: Cascade)
-  analysis   ListingAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  status     NotificationStatus @default(pending)
+  attempts   Int                @default(0)
+  claimedAt  DateTime?
+  sentAt     DateTime?
+  lastError  String?
+  listing    Listing            @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  search     Search             @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  analysis   ListingAnalysis    @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 
-  @@unique([listingId, searchId, analysisId, channel])
+  @@unique([analysisId, channel])
   @@index([searchId, sentAt])
+  @@index([status, claimedAt])
 }
 
 model CrossMarketplaceMatch {
@@ -152,7 +171,7 @@ model CrossMarketplaceMatch {
   listingAId String
   listingBId String
   confidence Float
-  reasons    String[]
+  reasons    String[] @default([])
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   listingA   Listing  @relation("MatchA", fields: [listingAId], references: [id], onDelete: Cascade)

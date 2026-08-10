@@ -28,7 +28,7 @@ describe("OpenAICompatibleProvider", () => {
     await provider.extractListingData({
       listing: listingFixture({ title: "BMW 320i 2015" }),
       category: "vehicle",
-      deterministicExtraction: { data: { year: 2015 }, confidence: 0.8 },
+      deterministicExtraction: { category: "vehicle", data: { year: 2015 }, extractionConfidence: 0.8 },
     });
 
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit;

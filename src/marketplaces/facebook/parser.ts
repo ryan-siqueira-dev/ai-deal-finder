@@ -28,7 +28,7 @@ export function parseFacebookSearchCard(card: FacebookSearchCard): ListingSummar
     currency: priceLine ? "BRL" : null,
     location,
     url: card.href,
-    imageUrl: card.image,
+    imageUrl: card.image && /^https?:\/\//i.test(card.image) ? card.image : null,
   };
 }
 
@@ -49,19 +49,20 @@ function usableDetailTitle(value: string | null): string | null {
   return title;
 }
 
-export function mapFacebookDetails(summary: ListingSummary, detail: FacebookDetailDocument): ListingDetails {
+export function mapFacebookDetails(summary: ListingSummary, detail: FacebookDetailDocument, storeRawData = false): ListingDetails {
+  const images = [...new Set(detail.images.filter((image) => /^https?:\/\//i.test(image)))].slice(0, 50);
   return {
     ...summary,
     title: usableDetailTitle(detail.title) ?? summary.title,
     price: parseBRLPrice(detail.priceText) ?? summary.price,
     currency: parseBRLPrice(detail.priceText) != null ? "BRL" : summary.currency,
     location: nullableText(detail.location) ?? summary.location,
-    description: nullableText(detail.description),
-    sellerName: nullableText(detail.sellerName),
-    images: [...new Set(detail.images)],
-    imageUrl: detail.images[0] ?? summary.imageUrl,
-    attributes: detail.attributes,
+    description: nullableText(detail.description)?.slice(0, 100_000) ?? null,
+    sellerName: nullableText(detail.sellerName)?.slice(0, 500) ?? null,
+    images,
+    imageUrl: images[0] ?? summary.imageUrl,
+    attributes: Object.fromEntries(Object.entries(detail.attributes).slice(0, 200)),
     publishedAt: null,
-    rawData: { visibleText: detail.text.slice(0, 20_000) },
+    ...(storeRawData ? { rawData: { visibleText: detail.text.slice(0, 20_000) } } : {}),
   };
 }

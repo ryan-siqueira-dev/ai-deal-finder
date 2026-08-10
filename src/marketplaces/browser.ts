@@ -9,29 +9,74 @@ export interface BrowserSessionOptions {
 export class BrowserSession {
   #browser: Browser | null = null;
   #context: BrowserContext | null = null;
+  #initializing: Promise<BrowserContext> | null = null;
+  #reloadRequested = false;
+  #closed = false;
 
   public constructor(private readonly options: BrowserSessionOptions) {}
 
   async page(): Promise<Page> {
-    if (!this.#browser) this.#browser = await chromium.launch({
+    if (this.#closed) throw new Error("browser_session_closed");
+    if (this.#reloadRequested) await this.reset();
+    return (await this.context()).newPage();
+  }
+
+  reloadOnNextPage(): void {
+    this.#reloadRequested = true;
+  }
+
+  async close(): Promise<void> {
+    this.#closed = true;
+    await this.reset();
+  }
+
+  private async reset(): Promise<void> {
+    await this.#initializing?.catch(() => undefined);
+    const context = this.#context;
+    const browser = this.#browser;
+    this.#context = null;
+    this.#browser = null;
+    this.#initializing = null;
+    this.#reloadRequested = false;
+    const failures: unknown[] = [];
+    try { await context?.close(); } catch (error) { failures.push(error); }
+    try { await browser?.close(); } catch (error) { failures.push(error); }
+    if (failures.length) throw new AggregateError(failures, "browser_session_close_failed");
+  }
+
+  private async context(): Promise<BrowserContext> {
+    if (this.#closed) throw new Error("browser_session_closed");
+    if (this.#context) return this.#context;
+    if (!this.#initializing) {
+      this.#initializing = this.createContext().finally(() => { this.#initializing = null; });
+    }
+    return this.#initializing;
+  }
+
+  private async createContext(): Promise<BrowserContext> {
+    if (this.#closed) throw new Error("browser_session_closed");
+    const browser = await chromium.launch({
       headless: this.options.headless,
       ...(this.options.executablePath ? { executablePath: this.options.executablePath } : {}),
     });
-    if (!this.#context) {
-      this.#context = await this.#browser.newContext({
+    if (this.#closed) {
+      await browser.close().catch(() => undefined);
+      throw new Error("browser_session_closed");
+    }
+    this.#browser = browser;
+    try {
+      const context = await browser.newContext({
         locale: "pt-BR",
         timezoneId: "America/Sao_Paulo",
         ...(this.options.storageStatePath ? { storageState: this.options.storageStatePath } : {}),
       });
+      this.#context = context;
+      return context;
+    } catch (error) {
+      this.#browser = null;
+      await browser.close().catch(() => undefined);
+      throw error;
     }
-    return this.#context.newPage();
-  }
-
-  async close(): Promise<void> {
-    await this.#context?.close();
-    await this.#browser?.close();
-    this.#context = null;
-    this.#browser = null;
   }
 }
 

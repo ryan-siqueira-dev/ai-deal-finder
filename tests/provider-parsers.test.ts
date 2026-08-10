@@ -20,6 +20,18 @@ describe("Mercado Livre mapper", () => {
     }, "Descrição completa");
     expect(details.attributes).toEqual({ Marca: "Galax" });
     expect(details.images).toEqual(["https://http2.mlstatic.com/full.jpg"]);
+    expect(details.rawData).toBeUndefined();
+  });
+  it("keeps raw API data only by opt-in and discards invalid images and dates", () => {
+    const raw = {
+      ...item, seller_id: 1, seller_address: {},
+      pictures: [{ secure_url: "javascript:alert(1)" }, { url: "https://http2.mlstatic.com/safe.jpg" }],
+      date_created: "not-a-date",
+    };
+    const details = mapMercadoLivreDetails(raw, null, true);
+    expect(details.images).toEqual(["https://http2.mlstatic.com/safe.jpg"]);
+    expect(details.publishedAt).toBeNull();
+    expect(details.rawData).toBe(raw);
   });
   it("parses current web result cards and tracking ids", () => {
     const href = "https://click1.mercadolivre.com.br/path?pdp_filters=item_id%3AMLB6972021044#wid=MLB6972021044";
@@ -40,6 +52,16 @@ describe("OLX parser and mapper", () => {
     if (!summary) throw new Error("fixture_invalid");
     const details = mapOlxDetails(summary, { title: "RTX detalhada", description: "Texto", priceText: "R$ 1.250", location: "Itajaí, SC", sellerName: "João", images: ["https://img.olx.com.br/1.jpg"], attributes: { Marca: "Galax" }, publishedAt: "2026-08-01T00:00:00Z" });
     expect(details).toMatchObject({ title: "RTX detalhada", price: 1250, sellerName: "João" });
+    expect(details.rawData).toBeUndefined();
+  });
+  it("keeps OLX raw data only by opt-in and filters invalid images and dates", () => {
+    const summary = parseOlxSearchCard({ href: "https://www.olx.com.br/item/x-123456789", title: "RTX", text: "RTX", image: null });
+    if (!summary) throw new Error("fixture_invalid");
+    const raw = { title: null, description: null, priceText: null, location: null, sellerName: null, images: ["data:text/plain,no", "https://img.olx.com.br/ok.jpg"], attributes: {}, publishedAt: "invalid" };
+    const details = mapOlxDetails(summary, raw, true);
+    expect(details.images).toEqual(["https://img.olx.com.br/ok.jpg"]);
+    expect(details.publishedAt).toBeNull();
+    expect(details.rawData).toBe(raw);
   });
 });
 
@@ -55,6 +77,14 @@ describe("Facebook parser", () => {
     const details = mapFacebookDetails(summary, { title: "RTX 3060 Ti", text: "...", description: "Usada", priceText: "R$ 1.200", location: "Itajaí, SC", sellerName: "Maria", images: [], attributes: {} });
     expect(details.price).toBe(1200);
     expect(details.sellerName).toBe("Maria");
+    expect(details.rawData).toBeUndefined();
+  });
+  it("keeps only bounded visible Facebook raw data by opt-in", () => {
+    const summary = parseFacebookSearchCard({ href: "https://facebook.com/marketplace/item/1", text: "RTX", ariaLabel: "RTX", image: null });
+    if (!summary) throw new Error("fixture_invalid");
+    const details = mapFacebookDetails(summary, { title: null, text: "x".repeat(25_000), description: null, priceText: null, location: null, sellerName: null, images: ["data:no", "https://safe.example/a.jpg"], attributes: {} }, true);
+    expect(details.images).toEqual(["https://safe.example/a.jpg"]);
+    expect(details.rawData).toEqual({ visibleText: "x".repeat(20_000) });
   });
   it("keeps the search title when Facebook exposes a navigation heading", () => {
     const summary = parseFacebookSearchCard({ href: "https://facebook.com/marketplace/item/2", text: "R$ 52.000\nBMW 320i 2010", ariaLabel: "BMW 320i 2010", image: null });

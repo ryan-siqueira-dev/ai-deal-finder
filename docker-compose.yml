@@ -19,23 +19,31 @@ services:
   app:
     profiles: ["server"]
     build: .
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://deal_finder:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}@postgres:5432/deal_finder?schema=public
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: deal_finder
+      DATABASE_USER: deal_finder
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}"
+      HOME: /tmp/ai-deal-finder-home
       PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ""
-      SCHEDULER_ENABLED: "true"
-      VNC_ENABLED: "true"
+      SCHEDULER_ENABLED: "${SCHEDULER_ENABLED:-true}"
+      VNC_ENABLED: "${VNC_ENABLED:-false}"
+      VNC_PASSWORD_FILE: "${VNC_PASSWORD_FILE:-}"
+      VNC_PASSWORD: "${VNC_PASSWORD:-}"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ./data:/app/data
       - ./.runtime:/app/.runtime
-    ports:
-      - "127.0.0.1:${VNC_PORT:-5900}:5900"
     shm_size: "1gb"
     init: true
+    # Covers the two-call LLM validation/repair path at the configured timeout ceiling.
+    stop_grace_period: "${APP_STOP_GRACE_PERIOD:-21m}"
 
 volumes:
   postgres_data:

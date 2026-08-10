@@ -28,9 +28,9 @@ export interface DealAnalysisInput {
 export const dealAnalysisSchema = z.object({
   score: z.number().min(0).max(100),
   verdict: z.enum(["bad", "weak", "fair", "good", "excellent_deal"]),
-  advantages: z.array(z.string()).max(10),
-  risks: z.array(z.string()).max(10),
-  reason: z.string().min(1).max(2000),
+  advantages: z.array(z.string().trim().min(1).max(500)).max(10),
+  risks: z.array(z.string().trim().min(1).max(500)).max(10),
+  reason: z.string().trim().min(1).max(2000),
 });
 export type DealAnalysis = z.infer<typeof dealAnalysisSchema>;
 

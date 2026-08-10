@@ -18,9 +18,13 @@ export function mapMercadoLivreSummary(item: MlSearchItem): ListingSummary {
   };
 }
 
-export function mapMercadoLivreDetails(item: MlItem, description: string | null): ListingDetails {
-  const images = item.pictures.flatMap((picture) => picture.secure_url ?? picture.url ?? []);
-  const attributes = Object.fromEntries(item.attributes.map((attribute) => [attribute.name, attribute.value_name ?? attribute.value_id ?? null]));
+export function mapMercadoLivreDetails(item: MlItem, description: string | null, storeRawData = false): ListingDetails {
+  const images = item.pictures
+    .flatMap((picture) => picture.secure_url ?? picture.url ?? [])
+    .filter((image) => /^https?:\/\//i.test(image))
+    .slice(0, 50);
+  const attributes = Object.fromEntries(item.attributes.slice(0, 200).map((attribute) => [attribute.name, attribute.value_name ?? attribute.value_id ?? null]));
+  const publishedAt = item.date_created ? new Date(item.date_created) : null;
   return {
     source: "mercadolivre",
     externalId: item.id,
@@ -30,11 +34,11 @@ export function mapMercadoLivreDetails(item: MlItem, description: string | null)
     location: location(item.seller_address?.city?.name, item.seller_address?.state?.name),
     url: item.permalink,
     imageUrl: item.thumbnail ?? images[0] ?? null,
-    description,
+    description: description?.slice(0, 100_000) ?? null,
     sellerName: null,
     images,
     attributes,
-    publishedAt: item.date_created ? new Date(item.date_created) : null,
-    rawData: item,
+    publishedAt: publishedAt && !Number.isNaN(publishedAt.getTime()) ? publishedAt : null,
+    ...(storeRawData ? { rawData: item } : {}),
   };
 }
