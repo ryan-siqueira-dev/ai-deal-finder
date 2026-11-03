@@ -45,7 +45,7 @@
     "pino": "^9.9.4",
     "playwright": "1.62.1",
     "prisma": "6.19.3",
-    "zod": "^3.25.76"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",
